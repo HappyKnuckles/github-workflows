@@ -1,0 +1,86 @@
+name: Node run
+
+# Reusable "install, then run one command" job for npm projects — for e2e suites,
+# generated-code checks and the like. Optionally uploads an artifact on failure.
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: Command to run after dependencies are installed.
+        type: string
+        required: true
+      node-version:
+        description: Node.js version passed to actions/setup-node.
+        type: string
+        default: "22"
+      npm-version:
+        description: npm version installed globally before `npm ci`. Empty keeps the npm bundled with Node.
+        type: string
+        default: ""
+      install-command:
+        description: Dependency install command.
+        type: string
+        default: npm ci
+      install-playwright:
+        description: Install Playwright browsers (with OS deps) before running the command.
+        type: boolean
+        default: false
+      playwright-browsers:
+        description: Browsers passed to `playwright install --with-deps`.
+        type: string
+        default: chromium
+      failure-artifact-name:
+        description: Name of the artifact uploaded when the command fails.
+        type: string
+        default: failure-artifacts
+      failure-artifact-path:
+        description: Path(s) uploaded when the command fails, one per line. Empty uploads nothing.
+        type: string
+        default: ""
+      failure-artifact-retention-days:
+        description: Retention for the failure artifact.
+        type: number
+        default: 7
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - name: Use npm ${{ inputs.npm-version }}
+        if: inputs.npm-version != ''
+        run: npm install -g "npm@${{ inputs.npm-version }}"
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Install Playwright browsers
+        if: inputs.install-playwright
+        run: npx playwright install --with-deps ${{ inputs.playwright-browsers }}
+
+      - name: Run
+        run: ${{ inputs.command }}
+
+      - name: Upload failure artifact
+        if: failure() && inputs.failure-artifact-path != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.failure-artifact-name }}
+          path: ${{ inputs.failure-artifact-path }}
+          retention-days: ${{ inputs.failure-artifact-retention-days }}

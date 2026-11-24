@@ -1,0 +1,98 @@
+name: Node coverage
+
+# Reusable coverage job for npm projects. Runs the coverage command (which should
+# fail on its own when a threshold is missed), then optionally renders a markdown
+# summary into the job summary and a sticky PR comment.
+#
+# The calling job must grant `pull-requests: write` for the PR comment.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version passed to actions/setup-node.
+        type: string
+        default: "22"
+      npm-version:
+        description: npm version installed globally before `npm ci`. Empty keeps the npm bundled with Node.
+        type: string
+        default: ""
+      install-command:
+        description: Dependency install command.
+        type: string
+        default: npm ci
+      install-playwright:
+        description: Install Playwright browsers (with OS deps) before the tests, e.g. for Vitest browser mode.
+        type: boolean
+        default: false
+      playwright-browsers:
+        description: Browsers passed to `playwright install --with-deps`.
+        type: string
+        default: chromium
+      coverage-command:
+        description: Command that runs the tests with coverage.
+        type: string
+        default: npm run test:coverage
+      summary-command:
+        description: Command that prints a markdown coverage summary to stdout. Empty skips the summary and PR comment.
+        type: string
+        default: ""
+      comment-on-pr:
+        description: Post the summary as a sticky comment on pull requests.
+        type: boolean
+        default: true
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - name: Use npm ${{ inputs.npm-version }}
+        if: inputs.npm-version != ''
+        run: npm install -g "npm@${{ inputs.npm-version }}"
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Install Playwright browsers
+        if: inputs.install-playwright
+        run: npx playwright install --with-deps ${{ inputs.playwright-browsers }}
+
+      - name: Tests with coverage
+        run: ${{ inputs.coverage-command }}
+
+      - name: Summarise coverage
+        id: summary
+        if: always() && inputs.summary-command != ''
+        run: |
+          ${{ inputs.summary-command }} > "$RUNNER_TEMP/coverage-summary.md"
+          cat "$RUNNER_TEMP/coverage-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment coverage on PR
+        if: always() && steps.summary.outcome == 'success' && inputs.comment-on-pr && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/coverage-summary.md" \
+            --edit-last --create-if-none

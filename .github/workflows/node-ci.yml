@@ -1,0 +1,91 @@
+name: Node CI
+
+# Reusable verify job for npm projects: install → lint → typecheck → unit tests → build.
+# Any step whose command input is set to an empty string is skipped.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version passed to actions/setup-node.
+        type: string
+        default: "22"
+      npm-version:
+        description: npm version installed globally before `npm ci`. Empty keeps the npm bundled with Node.
+        type: string
+        default: ""
+      install-command:
+        description: Dependency install command.
+        type: string
+        default: npm ci
+      lint-command:
+        description: Lint command. Empty skips linting.
+        type: string
+        default: npm run lint
+      typecheck-command:
+        description: Extra typecheck command (e.g. specs). Empty skips it.
+        type: string
+        default: ""
+      install-playwright:
+        description: Install Playwright browsers (with OS deps) before the unit tests, e.g. for Vitest browser mode.
+        type: boolean
+        default: false
+      playwright-browsers:
+        description: Browsers passed to `playwright install --with-deps`.
+        type: string
+        default: chromium
+      test-command:
+        description: Unit test command. Empty skips tests.
+        type: string
+        default: npm test
+      build-command:
+        description: Build command. Empty skips the build.
+        type: string
+        default: npm run build
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - name: Use npm ${{ inputs.npm-version }}
+        if: inputs.npm-version != ''
+        run: npm install -g "npm@${{ inputs.npm-version }}"
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Lint
+        if: inputs.lint-command != ''
+        run: ${{ inputs.lint-command }}
+
+      - name: Typecheck
+        if: inputs.typecheck-command != ''
+        run: ${{ inputs.typecheck-command }}
+
+      - name: Install Playwright browsers
+        if: inputs.install-playwright
+        run: npx playwright install --with-deps ${{ inputs.playwright-browsers }}
+
+      - name: Unit tests
+        if: inputs.test-command != ''
+        run: ${{ inputs.test-command }}
+
+      - name: Build
+        if: inputs.build-command != ''
+        run: ${{ inputs.build-command }}
